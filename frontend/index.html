@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeLens – AI Code Review Agent</title>
+    <style>
+        :root {
+            --bg: #070b18; --panel: #0e1428; --border: rgba(255, 255, 255, .09);
+            --text: #eef2ff; --muted: #96a0bd; --purple: #8b5cf6; --cyan: #22d3ee;
+            --pink: #ec4899; --green: #34d399; --red: #fb7185; --yellow: #fbbf24;
+        }
+        * { box-sizing: border-box }
+        body {
+            margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+            color: var(--text); min-height: 100vh;
+            background: radial-gradient(circle at 15% 5%, #25145c 0, transparent 30%), radial-gradient(circle at 85% 10%, #063f55 0, transparent 28%), var(--bg);
+        }
+        body:before {
+            content: ""; position: fixed; inset: 0; pointer-events: none;
+            background-image: linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
+            background-size: 42px 42px; mask-image: linear-gradient(to bottom, #000, transparent);
+        }
+        .container { width: min(1400px, 94%); margin: auto; position: relative }
+        .topbar { height: 72px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border) }
+        .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 21px }
+        .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--purple), var(--cyan)); box-shadow: 0 8px 30px #6d28d955; font-size: 20px }
+        .badge { display: flex; align-items: center; gap: 8px; border: 1px solid #34d39944; background: #34d39912; color: #8ff1c9; padding: 8px 13px; border-radius: 999px; font-size: 13px }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green) }
+        .hero { text-align: center; padding: 45px 15px 26px }
+        .hero h1 { font-size: clamp(36px, 5vw, 64px); line-height: 1; margin: 0 0 16px; letter-spacing: -2px }
+        .gradient { background: linear-gradient(90deg, #c4b5fd, #67e8f9, #f9a8d4); -webkit-background-clip: text; background-clip: text; color: transparent }
+        .hero p { max-width: 720px; margin: auto; color: var(--muted); font-size: 17px; line-height: 1.65 }
+        .pills { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 22px }
+        .pill { padding: 7px 12px; border-radius: 999px; background: #ffffff08; border: 1px solid var(--border); color: #cbd5e1; font-size: 12px }
+        .layout { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: 20px; padding-bottom: 24px }
+        .card { background: linear-gradient(180deg, #11182fdd, #0b1124ee); border: 1px solid var(--border); border-radius: 22px; box-shadow: 0 20px 70px #0005; overflow: hidden; backdrop-filter: blur(18px) }
+        .cardhead { padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px }
+        .cardtitle { font-weight: 750 }
+        .subtitle { font-size: 12px; color: var(--muted); margin-top: 3px }
+
+        /* language switcher */
+        .langbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end }
+        select { background: #0a1024; color: #e2e8f0; border: 1px solid #8b5cf666; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 600; outline: 0; cursor: pointer }
+        .auto { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none }
+        .auto input { accent-color: var(--purple) }
+
+        textarea { width: 100%; height: 470px; resize: vertical; background: #080d1c; color: #dbeafe; border: 0; outline: 0; padding: 20px; font: 14px/1.7 "Cascadia Code", "Fira Code", monospace; tab-size: 4 }
+        .editor { border-bottom: 1px solid var(--border); position: relative }
+        .lang { position: absolute; right: 14px; top: 13px; padding: 5px 9px; border-radius: 7px; background: #ffffff0b; color: #94a3b8; font-size: 11px; border: 1px solid var(--border); pointer-events: none }
+        .actions { padding: 15px; display: flex; gap: 10px; flex-wrap: wrap }
+        button { border: 0; cursor: pointer; font-weight: 700; border-radius: 11px; padding: 11px 16px; color: white; transition: .2s; font-family: inherit }
+        button:hover { transform: translateY(-1px) }
+        button:disabled { opacity: .6; cursor: wait }
+        .primary { background: linear-gradient(135deg, var(--purple), #6366f1); box-shadow: 0 10px 25px #7c3aed33 }
+        .secondary { background: #ffffff09; border: 1px solid var(--border); color: #cbd5e1 }
+        .clear { margin-left: auto }
+        .status { padding: 0 20px 16px; color: #94a3b8; font-size: 12px }
+
+        .result { min-height: 470px; padding: 20px; overflow: auto; max-height: 640px }
+        .empty { text-align: center; padding: 80px 25px; color: #7f8ba8 }
+        .emptyicon { font-size: 42px; margin-bottom: 12px }
+        .review h1, .review h2, .review h3 { color: #fff; margin-top: 22px }
+        .review p, .review li { color: #cbd5e1; line-height: 1.7 }
+        .review code { background: #ffffff0c; border: 1px solid var(--border); padding: 2px 5px; border-radius: 5px; color: #c4b5fd }
+        .review pre { background: #060a15; border: 1px solid var(--border); padding: 16px; border-radius: 12px; overflow: auto; position: relative }
+        .review pre code { background: none; border: 0; padding: 0; color: #dbeafe }
+        .copybtn { position: absolute; right: 8px; top: 8px; padding: 4px 9px; font-size: 11px; border-radius: 7px; background: #ffffff12; border: 1px solid var(--border); color: #cbd5e1 }
+        .memtag { display: inline-block; padding: 2px 9px; margin-right: 6px; border-radius: 999px; font-size: 11px; font-weight: 800; color: #ddd6fe; background: #8b5cf633; border: 1px solid #8b5cf6aa; box-shadow: 0 0 14px #8b5cf655 }
+        .memline { border-left: 3px solid var(--purple); background: #8b5cf611; padding: 2px 10px; border-radius: 0 8px 8px 0 }
+
+        .scorebox { display: flex; align-items: center; gap: 16px; padding: 14px 16px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 16px; background: #ffffff06 }
+        .ring { --p: 0; --c: var(--green); width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center; flex: none; background: conic-gradient(var(--c) calc(var(--p) * 1%), #ffffff14 0) }
+        .ring span { width: 58px; height: 58px; border-radius: 50%; background: #0b1124; display: grid; place-items: center; font-weight: 800; font-size: 20px }
+        .scoretext b { font-size: 15px }
+        .scoretext div { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.5 }
+
+        .memory { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 17px }
+        .memory-title { display: flex; align-items: center; gap: 8px; font-weight: 750; margin-bottom: 10px; flex-wrap: wrap }
+        .memory-item { padding: 11px 12px; background: #ffffff06; border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; color: #b9c3db; font-size: 12px; line-height: 1.5 }
+        .lesson-item { border-color: #34d39955; background: #34d39910 }
+
+        .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 15px 20px; border-top: 1px solid var(--border) }
+        .metric { padding: 13px; border-radius: 13px; background: #ffffff06; border: 1px solid var(--border) }
+        .metric b { font-size: 19px }
+        .metric span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px }
+
+        /* dashboard */
+        .dash { margin-bottom: 50px }
+        .dashgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 18px 20px 6px }
+        .stat { padding: 16px; border-radius: 14px; background: #ffffff06; border: 1px solid var(--border) }
+        .stat b { font-size: 28px; display: block }
+        .stat span { color: var(--muted); font-size: 12px }
+        .dashcols { display: grid; grid-template-columns: 1.1fr 1fr 1.2fr; gap: 16px; padding: 12px 20px 22px }
+        .dashcols h4 { margin: 8px 0 10px; font-size: 13px; color: #cbd5e1 }
+        .barrow { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 7px 0; color: #cbd5e1 }
+        .barrow .name { width: 82px } .barrow .track { flex: 1; height: 8px; border-radius: 9px; background: #ffffff10; overflow: hidden }
+        .barrow .fill { height: 100%; background: linear-gradient(90deg, var(--purple), var(--cyan)); border-radius: 9px }
+        .lessonrow { font-size: 12px; line-height: 1.5; color: #b9c3db; padding: 8px 10px; margin: 6px 0; border-radius: 10px; background: #ffffff06; border: 1px solid var(--border) }
+        .lessonrow em { font-style: normal; color: #c4b5fd; font-weight: 700; margin-right: 6px }
+        .muted { color: var(--muted); font-size: 12px }
+
+        .toast { position: fixed; right: 20px; bottom: 20px; padding: 13px 16px; border-radius: 12px; background: #111a33; border: 1px solid var(--border); box-shadow: 0 15px 50px #0008; display: none; z-index: 10 }
+        .spinner { width: 15px; height: 15px; border: 2px solid #ffffff44; border-top-color: white; border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 7px }
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @media(max-width:1000px) { .dashcols { grid-template-columns: 1fr } .dashgrid { grid-template-columns: 1fr 1fr } }
+        @media(max-width:900px) { .layout { grid-template-columns: 1fr } textarea { height: 380px } .clear { margin-left: 0 } .metrics { grid-template-columns: 1fr 1fr } }
+        @media(max-width:520px) { .hero h1 { font-size: 38px } .metrics { grid-template-columns: 1fr } .cardhead { flex-direction: column; align-items: flex-start } }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="topbar">
+            <div class="brand"><div class="logo">🔍</div> CodeLens <span style="color:#7782a1;font-weight:500">AI Code Review Agent</span></div>
+            <div class="badge"><span class="dot"></span><span id="backendText">Checking backend...</span></div>
+        </header>
+
+        <section class="hero">
+            <h1>Review code.<br><span class="gradient">Learn continuously.</span></h1>
+            <p>A multi-language code reviewer with long-term memory. Every review teaches the agent a new rule, and you can watch it get better.</p>
+            <div class="pills"><span class="pill">⚡ Groq AI</span><span class="pill">🧠 Hindsight Memory</span><span class="pill">🌐 9 Languages</span><span class="pill">📈 Learning Dashboard</span></div>
+        </section>
+
+        <main class="layout">
+            <section class="card">
+                <div class="cardhead">
+                    <div>
+                        <div class="cardtitle">Code Playground</div>
+                        <div class="subtitle">Pick a language, paste code, run a review</div>
+                    </div>
+                    <div class="langbar">
+                        <label class="auto"><input type="checkbox" id="autoDetect" checked> Auto-detect</label>
+                        <select id="language" aria-label="Programming language"></select>
+                    </div>
+                </div>
+                <div class="editor"><span class="lang" id="langTag">PY</span><textarea id="code" spellcheck="false" placeholder="Paste your code here..."></textarea></div>
+                <div class="actions">
+                    <button class="secondary" onclick="loadSample()">📄 Load Sample</button>
+                    <button class="secondary clear" onclick="clearCode()">Clear</button>
+                    <button class="primary" id="reviewBtn" onclick="reviewCode()">✨ Review Code</button>
+                </div>
+                <div class="status" id="status">Ready for review · Ctrl+Enter to run</div>
+            </section>
+
+            <section class="card">
+                <div class="cardhead">
+                    <div>
+                        <div class="cardtitle">AI Review</div>
+                        <div class="subtitle">Feedback grounded in team memory</div>
+                    </div><span class="pill" id="reviewState">Waiting</span>
+                </div>
+                <div class="result" id="result"></div>
+                <div class="metrics">
+                    <div class="metric"><b id="scoreMetric">–</b><span>Quality score</span></div>
+                    <div class="metric"><b id="memoryCount">–</b><span>Memories used</span></div>
+                    <div class="metric"><b id="learningState">–</b><span>Lessons learned</span></div>
+                    <div class="metric"><b id="pipelineState">Ready</b><span>Pipeline</span></div>
+                </div>
+            </section>
+        </main>
+
+        <section class="card dash">
+            <div class="cardhead">
+                <div>
+                    <div class="cardtitle">📈 Agent Learning Dashboard</div>
+                    <div class="subtitle">Live proof that memory makes the reviewer smarter over time</div>
+                </div>
+                <button class="secondary" onclick="loadStats()">Refresh</button>
+            </div>
+            <div class="dashgrid">
+                <div class="stat"><b id="dReviews">0</b><span>Reviews done</span></div>
+                <div class="stat"><b id="dLessons">0</b><span>Lessons remembered</span></div>
+                <div class="stat"><b id="dLangs">0</b><span>Languages covered</span></div>
+                <div class="stat"><b id="dAvg">–</b><span>Average score</span></div>
+            </div>
+            <div class="dashcols">
+                <div><h4>Score trend (last reviews)</h4><div id="trend"></div></div>
+                <div><h4>Reviews by language</h4><div id="langBars"></div></div>
+                <div><h4>Latest lessons learned</h4><div id="lessonList"></div></div>
+            </div>
+        </section>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Same origin when served by FastAPI at :8000/ui, otherwise call the local API directly.
+        const API = location.port === "8000" ? location.origin : "http://127.0.0.1:8000";
+        const LANGS = {
+            "Python": { tag: "PY", sample: "def find_max(numbers):\n    max_num = numbers[0]\n    for num in numbers:\n        if num > max_num:\n            max_num = num\n    return max_num\n\n\ndef get_user(db, user_id):\n    return db.execute(f\"SELECT * FROM users WHERE id = {user_id}\")\n" },
+            "JavaScript": { tag: "JS", sample: "async function loadUser(id) {\n  var res = await fetch('/api/users/' + id);\n  var user = res.json();\n  document.getElementById('name').innerHTML = user.name;\n  if (user.age == '18') { console.log('adult') }\n  return user;\n}\n" },
+            "TypeScript": { tag: "TS", sample: "interface User { id: number; name: string }\n\nfunction parse(data: any): User {\n  return data as User;\n}\n\nasync function save(u: User) {\n  fetch('/api/users', { method: 'POST', body: JSON.stringify(u) });\n}\n" },
+            "Java": { tag: "JAVA", sample: "public class UserService {\n    public String findName(Connection c, String id) throws Exception {\n        Statement s = c.createStatement();\n        ResultSet r = s.executeQuery(\"SELECT name FROM users WHERE id=\" + id);\n        r.next();\n        return r.getString(1);\n    }\n}\n" },
+            "C++": { tag: "C++", sample: "#include <iostream>\n\nint* makeArray(int n) {\n    int* arr = new int[n];\n    for (int i = 0; i <= n; i++) arr[i] = i;\n    return arr;\n}\n\nint main() {\n    int* a = makeArray(5);\n    std::cout << a[2];\n}\n" },
+            "C": { tag: "C", sample: "#include <stdio.h>\n#include <string.h>\n\nint main() {\n    char name[8];\n    gets(name);\n    char* buf = malloc(100);\n    strcpy(buf, name);\n    printf(buf);\n    return 0;\n}\n" },
+            "Go": { tag: "GO", sample: "package main\n\nimport (\n\t\"database/sql\"\n\t\"fmt\"\n)\n\nfunc getUser(db *sql.DB, id string) {\n\trows, _ := db.Query(\"SELECT name FROM users WHERE id=\" + id)\n\tfor rows.Next() {\n\t\tvar n string\n\t\trows.Scan(&n)\n\t\tfmt.Println(n)\n\t}\n}\n" },
+            "Rust": { tag: "RS", sample: "use std::fs;\n\nfn read_config(path: &str) -> String {\n    let text = fs::read_to_string(path).unwrap();\n    let copy = text.clone();\n    copy\n}\n\nfn main() {\n    println!(\"{}\", read_config(\"app.toml\"));\n}\n" },
+            "SQL": { tag: "SQL", sample: "SELECT * FROM orders o, customers c\nWHERE o.customer_id = c.id\n  AND c.email LIKE '%@gmail.com';\n\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nUPDATE accounts SET balance = balance + 100 WHERE id = 2;\n" }
+        };
+        // Cheap client-side language guesser used by Auto-detect.
+        const DETECTORS = [
+            ["Rust", /\bfn\s+\w+\s*\(|let\s+mut\s|println!\(|impl\s+\w+|use\s+std::/],
+            ["Go", /^package\s+\w+|func\s+(\(\w+\s+\*?\w+\)\s*)?\w+\(|:=\s|fmt\.\w+\(/m],
+            ["TypeScript", /:\s*(string|number|boolean|any)\b|interface\s+\w+\s*\{|\bas\s+\w+;|<\w+>\(/],
+            ["Java", /public\s+(static\s+)?(class|void|int|String)|System\.out\.print|@Override|import\s+java\./],
+            ["C++", /#include\s*<(iostream|vector|string|map)>|std::|\bcout\b|\bnew\s+\w+\[|template\s*</],
+            ["C", /#include\s*<(stdio|stdlib|string)\.h>|\bprintf\s*\(|\bmalloc\s*\(|int\s+main\s*\(/],
+            ["SQL", /^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE)\b/im],
+            ["JavaScript", /\b(const|let|var)\s+\w+\s*=|=>\s*[{(\w]|function\s+\w*\(|console\.log|document\.\w+|require\(/],
+            ["Python", /^\s*def\s+\w+\(.*\):|^\s*import\s+\w+|^\s*from\s+\w+\s+import|print\(|^\s*class\s+\w+.*:|elif\s|self\./m]
+        ];
+        const codeBox = document.getElementById("code");
+        const result = document.getElementById("result");
+        const btn = document.getElementById("reviewBtn");
+        const langSel = document.getElementById("language");
+        const autoBox = document.getElementById("autoDetect");
+        let lastScoreByLang = {};
+
+        Object.keys(LANGS).forEach(l => langSel.add(new Option(l, l)));
+        langSel.value = "Python";
+        codeBox.value = LANGS.Python.sample;
+
+        const EMPTY = '<div class="empty"><div class="emptyicon">🧠</div><h3 style="color:#e2e8f0">Your review will appear here</h3><p>Submit code to uncover bugs, security risks and performance problems. Findings that come from team memory are highlighted in purple.</p></div>';
+        result.innerHTML = EMPTY;
+
+        function escapeHtml(s) { return s.replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
+
+        function setLanguage(l) { langSel.value = l; document.getElementById("langTag").textContent = LANGS[l].tag; }
+        langSel.addEventListener("change", () => {
+            autoBox.checked = false;
+            setLanguage(langSel.value);
+            if (!codeBox.value.trim()) codeBox.value = LANGS[langSel.value].sample;
+        });
+        codeBox.addEventListener("input", () => {
+            if (!autoBox.checked) return;
+            const t = codeBox.value;
+            if (t.trim().length < 12) return;
+            for (const [name, re] of DETECTORS) if (re.test(t)) { setLanguage(name); return; }
+        });
+        codeBox.addEventListener("keydown", e => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); reviewCode(); }
+            if (e.key === "Tab") { e.preventDefault(); const s = codeBox.selectionStart; codeBox.setRangeText("    ", s, codeBox.selectionEnd, "end"); }
+        });
+
+        function markdownToHtml(md) {
+            let s = escapeHtml(md);
+            s = s.replace(/```[a-zA-Z0-9_+-]*\n?([\s\S]*?)```/g, (_, c) => "<pre><button class='copybtn' onclick='copyCode(this)'>Copy</button><code>" + c.trim() + "</code></pre>");
+            s = s.replace(/^### (.*)$/gm, "<h3>$1</h3>").replace(/^## (.*)$/gm, "<h2>$1</h2>").replace(/^# (.*)$/gm, "<h1>$1</h1>");
+            s = s.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+            s = s.replace(/^\|(.+)\|$/gm, line => {
+                const cells = line.split("|").slice(1, -1).map(x => x.trim());
+                if (cells.every(x => /^[-: ]+$/.test(x))) return "";
+                return "<div style='display:grid;grid-template-columns:repeat(" + cells.length + ",minmax(90px,1fr));border-bottom:1px solid var(--border)'>" + cells.map(x => "<div style='padding:9px'>" + x + "</div>").join("") + "</div>";
+            });
+            s = s.replace(/^\s*---\s*$/gm, "<hr style='border:0;border-top:1px solid var(--border);margin:20px 0'>");
+            s = s.replace(/^\s*[-*] (.*)$/gm, "<li>$1</li>").replace(/(<li>.*<\/li>\n?)+/g, m => "<ul>" + m + "</ul>");
+            // Highlight findings that came from team memory.
+            s = s.replace(/<li>(.*?)\[MEMORY\]/g, "<li class='memline'><span class='memtag'>🧠 Memory</span>$1");
+            s = s.replace(/\[MEMORY\]/g, "<span class='memtag'>🧠 Memory</span>");
+            s = s.replace(/\n{2,}/g, "</p><p>");
+            return "<div class='review'><p>" + s + "</p></div>";
+        }
+        function copyCode(b) {
+            navigator.clipboard.writeText(b.parentElement.querySelector("code").innerText);
+            b.textContent = "Copied!"; setTimeout(() => b.textContent = "Copy", 1400);
+        }
+
+        function scoreRing(score, lang, memCount) {
+            const color = score >= 80 ? "var(--green)" : score >= 55 ? "var(--yellow)" : "var(--red)";
+            const prev = lastScoreByLang[lang];
+            let delta = "First " + lang + " review in this session.";
+            if (prev !== undefined) { const d = score - prev; delta = (d >= 0 ? "▲ +" : "▼ ") + d + " vs your previous " + lang + " review."; }
+            const memNote = memCount ? memCount + " remembered rule" + (memCount > 1 ? "s were" : " was") + " applied." : "No team memory applied yet, this review will teach the agent.";
+            lastScoreByLang[lang] = score;
+            return "<div class='scorebox'><div class='ring' style='--p:" + score + ";--c:" + color + "'><span>" + score + "</span></div><div class='scoretext'><b>" + lang + " quality score</b><div>" + delta + "<br>" + memNote + "</div></div></div>";
+        }
+
+        async function checkBackend() {
+            try {
+                const r = await fetch(API + "/health");
+                if (!r.ok) throw new Error();
+                document.getElementById("backendText").textContent = "Backend Connected";
+                loadStats();
+            } catch (e) {
+                document.getElementById("backendText").textContent = "Backend Offline";
+                document.querySelector(".dot").style.background = "var(--red)";
+            }
+        }
+
+        async function reviewCode() {
+            const code = codeBox.value.trim();
+            const language = langSel.value;
+            if (!code) { showToast("Please paste some code first."); return }
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Reviewing...';
+            document.getElementById("status").textContent = "Running " + language + " code → Hindsight recall → Groq review → lesson extraction → Hindsight retain";
+            document.getElementById("reviewState").textContent = "Analyzing";
+            document.getElementById("pipelineState").textContent = "Running";
+            result.innerHTML = '<div class="empty"><div class="emptyicon">⚙️</div><h3 style="color:#e2e8f0">AI is reviewing your ' + language + ' code...</h3><p>Recalling team memory and generating feedback.</p></div>';
+            try {
+                const r = await fetch(API + "/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, language }) });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail ? JSON.stringify(data.detail) : "Review failed");
+                const memories = data.memories_used || [];
+                const lessons = data.lessons || [];
+                result.innerHTML = markdownToHtml(data.review || "No review returned.");
+                const review = result.querySelector(".review");
+                if (data.score !== null && data.score !== undefined) {
+                    review.insertAdjacentHTML("afterbegin", scoreRing(data.score, data.language, memories.length));
+                    document.getElementById("scoreMetric").textContent = data.score + "/100";
+                }
+                document.getElementById("memoryCount").textContent = memories.length;
+                document.getElementById("learningState").textContent = lessons.length;
+                document.getElementById("pipelineState").textContent = "✅ Complete";
+                document.getElementById("reviewState").textContent = "Complete";
+                document.getElementById("status").textContent = "Review completed · " + lessons.length + " new lesson(s) stored in team memory";
+
+                const mem = document.createElement("div"); mem.className = "memory";
+                mem.innerHTML = "<div class='memory-title'>🧠 Recalled from memory <span class='pill'>" + memories.length + "</span></div>";
+                if (!memories.length) mem.insertAdjacentHTML("beforeend", "<div class='muted'>Nothing relevant yet. Run another review and this list will grow.</div>");
+                memories.forEach(m => { const d = document.createElement("div"); d.className = "memory-item"; d.textContent = m; mem.appendChild(d) });
+                review.appendChild(mem);
+
+                const les = document.createElement("div"); les.className = "memory";
+                les.innerHTML = "<div class='memory-title'>🌱 Learned from this review <span class='pill'>" + lessons.length + " new</span></div>";
+                lessons.forEach(m => { const d = document.createElement("div"); d.className = "memory-item lesson-item"; d.textContent = m; les.appendChild(d) });
+                review.appendChild(les);
+                loadStats();
+            } catch (e) {
+                result.innerHTML = '<div class="empty"><div class="emptyicon">⚠️</div><h3 style="color:#fda4af">Could not complete the review</h3><p>' + escapeHtml(e.message) + '</p><p style="font-size:12px">Make sure FastAPI is running at ' + API + '</p></div>';
+                document.getElementById("pipelineState").textContent = "Error";
+                document.getElementById("reviewState").textContent = "Failed";
+                document.getElementById("status").textContent = "Review failed";
+            } finally { btn.disabled = false; btn.innerHTML = "✨ Review Code"; }
+        }
+
+        async function loadStats() {
+            try {
+                const d = await (await fetch(API + "/stats")).json();
+                document.getElementById("dReviews").textContent = d.total_reviews;
+                document.getElementById("dLessons").textContent = d.total_lessons;
+                document.getElementById("dLangs").textContent = Object.keys(d.by_language).length;
+                const scores = d.score_history.map(x => x.score);
+                document.getElementById("dAvg").textContent = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "–";
+
+                const trend = document.getElementById("trend");
+                if (scores.length < 2) trend.innerHTML = "<div class='muted'>Run at least 2 reviews to see the trend.</div>";
+                else {
+                    const W = 300, H = 110, pad = 10;
+                    const pts = scores.map((v, i) => [pad + i * (W - 2 * pad) / (scores.length - 1), H - pad - v / 100 * (H - 2 * pad)]);
+                    trend.innerHTML = "<svg viewBox='0 0 " + W + " " + H + "' width='100%' style='background:#ffffff05;border-radius:12px;border:1px solid var(--border)'><polyline fill='none' stroke='#22d3ee' stroke-width='2.5' points='" + pts.map(p => p.join(",")).join(" ") + "'/>" + pts.map(p => "<circle cx='" + p[0] + "' cy='" + p[1] + "' r='3.5' fill='#8b5cf6'/>").join("") + "</svg>";
+                }
+                const max = Math.max(1, ...Object.values(d.by_language));
+                document.getElementById("langBars").innerHTML = Object.entries(d.by_language).sort((a, b) => b[1] - a[1]).map(([l, n]) =>
+                    "<div class='barrow'><span class='name'>" + escapeHtml(l) + "</span><div class='track'><div class='fill' style='width:" + (n / max * 100) + "%'></div></div><span>" + n + "</span></div>").join("") || "<div class='muted'>No reviews yet.</div>";
+                document.getElementById("lessonList").innerHTML = d.recent_lessons.map(x => "<div class='lessonrow'><em>" + escapeHtml(x.language) + "</em>" + escapeHtml(x.lesson) + "</div>").join("") || "<div class='muted'>Lessons appear here after your first review.</div>";
+            } catch (e) { /* dashboard is optional */ }
+        }
+
+        function loadSample() { codeBox.value = LANGS[langSel.value].sample; showToast(langSel.value + " sample loaded"); }
+        function clearCode() { codeBox.value = ""; result.innerHTML = EMPTY; document.getElementById("status").textContent = "Ready for review · Ctrl+Enter to run"; }
+        function showToast(t) { const x = document.getElementById("toast"); x.textContent = t; x.style.display = "block"; setTimeout(() => x.style.display = "none", 1800) }
+        checkBackend();
+    </script>
+</body>
+
+</html>
